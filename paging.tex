@@ -1,0 +1,149 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[latin1]{inputenc}
+\usepackage[pdftex]{graphicx,color}  
+\usepackage[linkcolor=blue, colorlinks=true]{hyperref}
+\usepackage{multicol}
+\usepackage{titlesec}
+
+\setlength{\hoffset}{0pt}
+\setlength{\voffset}{0pt}
+\setlength{\oddsidemargin}{0pt}
+\setlength{\topmargin}{0pt}
+\setlength{\headheight}{0pt}
+\setlength{\headsep}{0pt}
+\setlength{\textheight}{\paperheight}
+\addtolength{\textheight}{-2.2in}
+\setlength{\parindent}{0cm}
+\setlength{\parskip}{.2cm}
+\setlength{\tabcolsep}{.2cm}
+\setlength{\textwidth}{\paperwidth}
+\addtolength{\textwidth}{-2in}
+\clubpenalty = 10000
+\widowpenalty = 10000 
+\displaywidowpenalty = 10000
+
+\titlespacing\section{0pt}{6pt plus 2pt minus 1pt}{1pt plus 1pt minus 1pt}
+
+\titleformat{\section}{\normalfont\fontsize{12}{15}\bfseries}{\thesection}{1em}{}
+
+% XXX also shrink section sizes slightly
+
+\pdfinfo {            
+	/Title(Stable, Composable and Efficient Paging of Result Sets)
+}
+
+\title{Stable, Composable and Efficient Paging\\ of Result Sets}
+\author{Robert Lemmen $<$robertle@semistable.com$>$}
+\date{\today}
+
+\begin{document}
+\maketitle
+\bigskip
+
+\begin{abstract}
+\noindent Paging of results sets, showing a limited section of the results with
+the ability to navigate to the adjacent sections, is a common and seemingly
+trivial method used in computer systems. As usual, the devil is in the details
+however. A simple and widespread approach is to use and offset into the result
+set. This text shows problems resulting from this strategy, how they can be
+overcome with a small modification, and how this can be leveraged to solve
+even more interesting problems.
+\end{abstract}
+\vspace{40pt}
+
+\begin{multicols}{2}
+\section*{A Paging Example}
+In order to illustrate the next sections, it is useful to have a common and
+simple example case. Suppose we have a computer system containing a set of
+records and making these records available to the user. We only want to present
+a limited set of records with a given size to the user at a time, and the user 
+should be able to retrieve the next set, or go back to the previous set. A very
+common setup that we are all familiar with.
+
+In our example the records will initially only be simple numbers. Not a very
+useful system, but sufficient for this discussion. Our system will contain only
+the numbers 2, 4, 5, 6, 8, 9, 11, 12, 14, 16, 17, 18, 19, 21, 24, 26. We will
+also fix the size of a result set page to 5. We will allow a set of retrieval
+options like filtering, search and ordering as we expand the example, but
+initially the number are always presented in their natural numerical order, and
+all numbers are returned. 
+
+So the if the user submits a query, the first page presented should contain the
+numbers 2, 4, 5, 6, and 8, and the next page 9, 11, 12, 14, 16. Overall there
+will be four pages, with the last on consisting of only one element, 26. 
+
+\section*{Using Offsets}
+The most common approach to implementing this is using an offset into full
+result set. So for example a function would be invoked with query parameters
+like ordering and filtering predicates, and an initial offset = 0 and a
+pagesize of 5. The implementation of this function would somehow apply the
+ordering and filtering, and then returnd the items starting with the element at
+position {\em offset} in the list, stopping after it has returned {\em
+pagesize}. 
+
+When the user navigates to the next page, the presentation logic simply adds the
+pagesize to the current offset, yielding the offset of the next page and uses
+this for the next query. In the same way, the previous page can be addressed by
+subtracting the pagesize from the current offset. 
+
+\section*{Stability}
+It is interesting to observe what happens when we modify the data in our system
+between two calls that present adjacent pages. There is no ``transactionality''
+over the two page presentations, so we cannot expect to see an isolated full
+view of either the old or the new state. In other words if an item gets added to
+the list then we might or might not see it when paging through the result set,
+depending on when it was added relative to the flip from one page to the next,
+and depending on which page it is on. 
+
+What we do not expect however, is that the addition or removal of an item has an
+effect on the visibility of other items. Unfortunately this is the case however. 
+
+In our example we have just retrieved the first page (2, 4, 5, 6, 8), when the
+number 6 gets deleted from the system. If we were to re-retrieve the first page
+at this point, we would get 2, 4, 5, 8 and 9 instead. But we do retrieve the
+second page, unaware of the modification, and get 11, 12, 14, 16, and 17. So the
+removal of item 6 has hidden led to the fact that we have seen 6, but have
+missed 9 instead. In a similar effect, the addition of items in a page before
+the one we are currently looking at will lead to items being present on multiple
+pages. This effect gets worse with the size of the result set, as addition or
+removal of items affects all following pages. The bigger the result set, the
+more pages are affected by a change.
+
+\section*{Efficiency}
+Earlier we said the implementation of our query method would return items 
+``...starting with the element at position {\em offset}...''. This is worth
+examining: while some data structures that could potentially be used to hold our
+data do support direct and efficient addressing of elements by their position
+(e.g. arrays), these are unlikely to be used for any real-world application.
+Much more likely are search trees of some sort or other data structure that 
+allow efficient ($\mathcal{O}(n\log{}n)$ or better) search and insertion. In 
+these, the only way to locate an element by a
+given position is to iterate from the start to that position and simply discard
+all elements prior to the desired one, an $\mathcal{O}(n)$ and search. There are
+no data structures that allow all three operations of insertion, search and
+direct addressing by position efficiently. 
+
+Even if there was a data structure that would support this, it could not
+continue to work in the presence of a filtering predicate. If for example we
+instruct our system to only return even numbers, it would have to iterate
+through the items in our database, check for each of them whether it is even or
+not, and keep count of how many fulfill this criteria. 
+
+The fact that finding a single page has a complexity of $\mathcal{O}(n)$ is bad
+enough, but it also means that traversing all pages has a complexity of
+$\mathcal{O}(n^2)$, always a sign of trouble.
+
+% XXX may be hidden by database implementation
+
+\section*{Simple Locators}
+
+% XXX explain simple case
+% XXX stability
+% XXX efficiency
+% XXX paging backwards
+
+% XXX more stuff...
+
+
+\end{multicols}
+\end{document}
