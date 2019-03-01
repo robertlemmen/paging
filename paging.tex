@@ -62,14 +62,14 @@ common setup that we are all familiar with.
 
 In our example the records will initially only be simple numbers. Not a very
 useful system, but sufficient for this discussion. Our system will contain only
-the numbers 2, 4, 5, 6, 8, 9, 11, 12, 14, 16, 17, 18, 19, 21, 24, 26. We will
+the numbers 2, 4, 5, 6, 8, 10, 11, 12, 14, 16, 17, 18, 19, 21, 24, 26. We will
 also fix the size of a result set page to 5. We will allow a set of retrieval
 options like filtering, search and ordering as we expand the example, but
 initially the number are always presented in their natural numerical order, and
 all numbers are returned. 
 
 So the if the user submits a query, the first page presented should contain the
-numbers 2, 4, 5, 6, and 8, and the next page 9, 11, 12, 14, 16. Overall there
+numbers 2, 4, 5, 6, and 8, and the next page 10, 11, 12, 14, 16. Overall there
 will be four pages, with the last on consisting of only one element, 26. 
 
 \section*{Using Offsets}
@@ -100,10 +100,10 @@ effect on the visibility of other items. Unfortunately this is the case however.
 
 In our example we have just retrieved the first page (2, 4, 5, 6, 8), when the
 number 6 gets deleted from the system. If we were to re-retrieve the first page
-at this point, we would get 2, 4, 5, 8 and 9 instead. But we do retrieve the
+at this point, we would get 2, 4, 5, 8 and 10 instead. But we do retrieve the
 second page, unaware of the modification, and get 11, 12, 14, 16, and 17. So the
 removal of item 6 has hidden led to the fact that we have seen 6, but have
-missed 9 instead. In a similar effect, the addition of items in a page before
+missed 10 instead. In a similar effect, the addition of items in a page before
 the one we are currently looking at will lead to items being present on multiple
 pages. This effect gets worse with the size of the result set, as addition or
 removal of items affects all following pages. The bigger the result set, the
@@ -116,7 +116,7 @@ examining: while some data structures that could potentially be used to hold our
 data do support direct and efficient addressing of elements by their position
 (e.g. arrays), these are unlikely to be used for any real-world application.
 Much more likely are search trees of some sort or other data structure that 
-allow efficient ($\mathcal{O}(n\log{}n)$ or better) search and insertion. In 
+allow efficient ($\mathcal{O}(\log{}n)$ or better) search and insertion. In 
 these, the only way to locate an element by a
 given position is to iterate from the start to that position and simply discard
 all elements prior to the desired one, an $\mathcal{O}(n)$ and search. There are
@@ -127,22 +127,116 @@ Even if there was a data structure that would support this, it could not
 continue to work in the presence of a filtering predicate. If for example we
 instruct our system to only return even numbers, it would have to iterate
 through the items in our database, check for each of them whether it is even or
-not, and keep count of how many fulfill this criteria. 
+not, and keep count of how many fulfill this criteria, before it could determine
+where the start of the new page is.
 
 The fact that finding a single page has a complexity of $\mathcal{O}(n)$ is bad
 enough, but it also means that traversing all pages has a complexity of
 $\mathcal{O}(n^2)$, always a sign of trouble.
 
-% XXX may be hidden by database implementation
+Note that the complexity of this is often hidden, which of course does not make
+it go away. For example many SQL servers implement an OFFSET query parameter
+that functionally allows this type of paging. Inspection of the quer plan
+however reveals that the implementation of this is just as described above:
+linear scan over the result set, just not returning any data until OFFSET is
+reached.
 
 \section*{Simple Locators}
 
-% XXX explain simple case
-% XXX stability
-% XXX efficiency
-% XXX paging backwards
+Fundamentally the problem with the offset is what it is relative to: the start
+of the result set, which can be pretty far away and requires understanding of
+everything inbetween. The alternative is to use something much closer to the
+current page, a virtual item that sorts just before the start of the page under
+some ordering predicate: a {\em locator}. If we have such a locator, we can provide it
+to a query instead of an offset, and in our (or the database implementation) we
+can use it to quickly locate the start of the page by comparing in a binary chop
+or tree traversal.
+
+This sounds a little bit abstract, but in a simple concrete case it is rather
+trivial: in our number server from above, the type of the locator could also be
+a number. Note that it is the same type, not necessarily one of the numbers in
+our database. For example we would query our server with a locator value of 10,
+and a page size of 5 as above. Internally we would use a $<$ operator as the
+ordering predicate. If our implementation uses a binary chop, it would take
+$\mathcal{O}(\log{}n)$ comparisons to find out that the locator is not less
+than 8, but that this changes with the next item (10). Note that this uses a
+strict ordering between locators and items, which is counter-intuitive but
+important. It may help to think of them as different types despite the obvious
+similarily in this simple example. So our page would start with the first item
+for which the ordering predicate no longer returns true. If the implementation
+uses a more clever search strategy, e.g. a btree or so, the time complexity
+stays the same of course.
+
+Note that this also works for the very first element, e.g. if we supply a 0 as
+the locator. This requires a value for the locator type that s considered less
+than the smallest possible actual entry in the database, something that
+typically requires some work in the form of a special value, a nullable locator,
+or a composite locator that has an extra attribute marking it as the beginning.
+
+Also note that the effort of locating the start of the page is the same across
+the whole result set, no matter how large it is. This addresses the efficiency
+problems of the offset approach, leading to a complexity for iterating the whole
+result set of $\mathcal{O}(n\log{}n)$.
+
+A key difference between the two approaches however is that in the offset case,
+the client can compute the offset of the next page just based on the query
+parameters used for the current one, in the locator case the server needs to
+provide a locator for the next page along with the page contents. This may seem
+redundant in this simple example, because the locator for the next page could
+just be the last entry of the page. But remember that the locator and the item 
+are technically different types, and in more complex cases they will also be
+different in practice. Therefore it is very important that clients do not
+attempt to construct, compose or otherwise interpret locators. They should just
+treat them as opaque ``handles'' that are passed back to the server.
+
+The locator is typically derived from the last element of the current page,
+which has the drawback that if that is the last element in the whole result set,
+the client would retrieve the next page, which turns out to be empty. A way to
+mitigate this is to always retrieve one item more than the page size, but not
+return it to the client. If that item does not exists, the locator is set to a
+special ``end'' value (which could be the same as the ``start'' one used by the
+client). 
+
+\section*{Locator Stability}
+
+Despite this warning, it is interesting to see what would happen when using an
+invented locator that was not previously returned as part of a page. For example 
+if we use 9. The locator is different, but it would still be ordered in the same
+place, between 8 and 10, and consequently the page returned is exactly the same.
+This also works the other way around: if the locator stays the same, but the
+result set changes because items are added or removed, the page returned is not
+affected as long as the items added/removed are on this page. So the locator
+stability problem of the offsert approach is fixed too.
+
+Even if the page in question is affected, the results are hard to distinguish
+from the case where the modification happened just before or after the page
+retrieval. For example if the locator is 10, but 10 got removed between the two
+page retrievals. The final full result set and the division into pages is just
+the same as if the retrieval happened after the removal. The only difference is
+the locator used at some point, but we already established that the client is
+not meant to look at the locator too closely.
+
+% XXX something is wrong with our locators, we need to use a > and the last
+% element!
+
+\section*{Locating Backwards}
+
+Of course clients may also navigate backwards sometimes, which is more
+complicated than in the offset case. First of all it ideally uses a different
+locator, one related to the start of the page and derived from the first
+element. It also requires a flag by the client that indicates whether we are
+paging forward or backwards from the locatodirect page access. Based on this the
+implementation would reverse both the ordering when iterating the result set, as
+well as use a different ordering predicate. % XXX stopped here
+
+In many cases it makes sense to reverse the
+order of the items returned again before returning them to the client, but that
+can also be done on the client before presenting them. 
+
+% XXX direct page access
 
 % XXX more stuff...
+
 
 
 \end{multicols}
