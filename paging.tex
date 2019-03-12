@@ -81,6 +81,8 @@ ordering and filtering, and then returnd the items starting with the element at
 position {\em offset} in the list, stopping after it has returned {\em
 pagesize}. 
 
+\includegraphics{offsets.pdf}
+
 When the user navigates to the next page, the presentation logic simply adds the
 pagesize to the current offset, yielding the offset of the next page and uses
 this for the next query. In the same way, the previous page can be addressed by
@@ -151,6 +153,8 @@ some ordering predicate: a {\em locator}. If we have such a locator, we can prov
 to a query instead of an offset, and in our (or the database implementation) we
 can use it to quickly locate the start of the page by comparing in a binary chop
 or tree traversal.
+
+\includegraphics{locators.pdf}
 
 This sounds a little bit abstract, but in a simple concrete case it is rather
 trivial: in our number server from above, the type of the locator could also be
@@ -232,6 +236,8 @@ well as use a different ordering predicate. % XXX stopped here
 In many cases it makes sense to reverse the
 order of the items returned again before returning them to the client, but that
 can also be done on the client before presenting them. 
+
+\includegraphics{locate-back.pdf}
 
 % XXX direct page access
 
