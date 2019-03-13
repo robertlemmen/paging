@@ -44,7 +44,7 @@
 \noindent Paging of results sets, showing a limited section of the results with
 the ability to navigate to the adjacent sections, is a common and seemingly
 trivial method used in computer systems. As usual, the devil is in the details
-however. A simple and widespread approach is to use and offset into the result
+however. A simple and widespread approach is to use an offset into the result
 set. This text shows problems resulting from this strategy, how they can be
 overcome with a small modification, and how this can be leveraged to solve
 even more interesting problems.
@@ -73,9 +73,9 @@ numbers 2, 4, 5, 6, and 8, and the next page 10, 11, 12, 14, 16. Overall there
 will be four pages, with the last on consisting of only one element, 26. 
 
 \section*{Using Offsets}
-The most common approach to implementing this is using an offset into full
+The most common approach to implementing this is using an offset into the full
 result set. So for example a function would be invoked with query parameters
-like ordering and filtering predicates, and an initial offset = 0 and a
+like ordering and filtering predicates, and an initial offset = 5 and a
 pagesize of 5. The implementation of this function would somehow apply the
 ordering and filtering, and then returnd the items starting with the element at
 position {\em offset} in the list, stopping after it has returned {\em
@@ -104,7 +104,7 @@ In our example we have just retrieved the first page (2, 4, 5, 6, 8), when the
 number 6 gets deleted from the system. If we were to re-retrieve the first page
 at this point, we would get 2, 4, 5, 8 and 10 instead. But we do retrieve the
 second page, unaware of the modification, and get 11, 12, 14, 16, and 17. So the
-removal of item 6 has hidden led to the fact that we have seen 6, but have
+removal of item 6 has led to the fact that we have seen 6, but have
 missed 10 instead. In a similar effect, the addition of items in a page before
 the one we are currently looking at will lead to items being present on multiple
 pages. This effect gets worse with the size of the result set, as addition or
@@ -121,7 +121,7 @@ Much more likely are search trees of some sort or other data structure that
 allow efficient ($\mathcal{O}(\log{}n)$ or better) search and insertion. In 
 these, the only way to locate an element by a
 given position is to iterate from the start to that position and simply discard
-all elements prior to the desired one, an $\mathcal{O}(n)$ and search. There are
+all elements prior to the desired one, a $\mathcal{O}(n)$ operation. There are
 no data structures that allow all three operations of insertion, search and
 direct addressing by position efficiently. 
 
@@ -138,8 +138,8 @@ $\mathcal{O}(n^2)$, always a sign of trouble.
 
 Note that the complexity of this is often hidden, which of course does not make
 it go away. For example many SQL servers implement an OFFSET query parameter
-that functionally allows this type of paging. Inspection of the quer plan
-however reveals that the implementation of this is just as described above:
+which allows a simple implementation of this type of paging. Inspection of the 
+quer plan however reveals that the implementation of this is just as described above:
 linear scan over the result set, just not returning any data until OFFSET is
 reached.
 
@@ -159,11 +159,11 @@ or tree traversal.
 This sounds a little bit abstract, but in a simple concrete case it is rather
 trivial: in our number server from above, the type of the locator could also be
 a number. Note that it is the same type, not necessarily one of the numbers in
-our database. For example we would query our server with a locator value of 10,
-and a page size of 5 as above. Internally we would use a $<$ operator as the
+our database. For example we would query our server with a locator value of 8,
+and a page size of 5 as above. Internally we would use a $>$ operator as the
 ordering predicate. If our implementation uses a binary chop, it would take
-$\mathcal{O}(\log{}n)$ comparisons to find out that the locator is not less
-than 8, but that this changes with the next item (10). Note that this uses a
+$\mathcal{O}(\log{}n)$ comparisons to find out that the first item greater than
+the locator is 10. Note that this uses a
 strict ordering between locators and items, which is counter-intuitive but
 important. It may help to think of them as different types despite the obvious
 similarily in this simple example. So our page would start with the first item
@@ -172,7 +172,7 @@ uses a more clever search strategy, e.g. a btree or so, the time complexity
 stays the same of course.
 
 Note that this also works for the very first element, e.g. if we supply a 0 as
-the locator. This requires a value for the locator type that s considered less
+the locator. This requires a value for the locator type that is considered less
 than the smallest possible actual entry in the database, something that
 typically requires some work in the form of a special value, a nullable locator,
 or a composite locator that has an extra attribute marking it as the beginning.
@@ -184,7 +184,7 @@ result set of $\mathcal{O}(n\log{}n)$.
 
 A key difference between the two approaches however is that in the offset case,
 the client can compute the offset of the next page just based on the query
-parameters used for the current one, in the locator case the server needs to
+parameters used for the current one. In the locator case the server needs to
 provide a locator for the next page along with the page contents. This may seem
 redundant in this simple example, because the locator for the next page could
 just be the last entry of the page. But remember that the locator and the item 
@@ -193,19 +193,22 @@ different in practice. Therefore it is very important that clients do not
 attempt to construct, compose or otherwise interpret locators. They should just
 treat them as opaque ``handles'' that are passed back to the server.
 
-The locator is typically derived from the last element of the current page,
-which has the drawback that if that is the last element in the whole result set,
-the client would retrieve the next page, which turns out to be empty. A way to
+The locator is typically derived from the last element of the current page. 
+This has the drawback that if that is the last element in the whole result set,
+the client would retrieve the next page using that locator, which then turns out to be empty. A way to
 mitigate this is to always retrieve one item more than the page size, but not
 return it to the client. If that item does not exists, the locator is set to a
 special ``end'' value (which could be the same as the ``start'' one used by the
-client). 
+client). Whether this optimization is worth the extra complexity depends on the
+use case, e.g. for a user-facing system an empty last page could be confusing
+and frustrating, if the client is another computer system then it is probably
+used to that type of frustration already..
 
 \section*{Locator Stability}
 
-Despite this warning, it is interesting to see what would happen when using an
-invented locator that was not previously returned as part of a page. For example 
-if we use 9. The locator is different, but it would still be ordered in the same
+Despite the warning to not invent locators on the client side, it is interesting 
+to see what would happen when using a locator that was not previously returned as part of a page. For example 
+if we use 9: the locator value is different, but it would still be ordered in the same
 place, between 8 and 10, and consequently the page returned is exactly the same.
 This also works the other way around: if the locator stays the same, but the
 result set changes because items are added or removed, the page returned is not
@@ -220,9 +223,6 @@ the same as if the retrieval happened after the removal. The only difference is
 the locator used at some point, but we already established that the client is
 not meant to look at the locator too closely.
 
-% XXX something is wrong with our locators, we need to use a > and the last
-% element!
-
 \section*{Locating Backwards}
 
 Of course clients may also navigate backwards sometimes, which is more
@@ -231,7 +231,11 @@ locator, one related to the start of the page and derived from the first
 element. It also requires a flag by the client that indicates whether we are
 paging forward or backwards from the locatodirect page access. Based on this the
 implementation would reverse both the ordering when iterating the result set, as
-well as use a different ordering predicate. % XXX stopped here
+well as use a different ordering predicate. Interestingly the reverse ordering
+predicate cannot be constructed from the forward ordering predicate by inversion
+as that would turn $>$ into $<=$, which is no longer a strict ordering. In many
+cases the reverse ordering predicate can however be constructed from the forward
+ordering predicate by inversion of the paramters (of course).
 
 In many cases it makes sense to reverse the
 order of the items returned again before returning them to the client, but that
