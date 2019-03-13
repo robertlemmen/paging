@@ -334,9 +334,37 @@ here).
 
 % XXX building offset-based paging on top of locators
 
-% XXX time as a locator
+\section*{Timestamps as Locators}
+If you have locators, everything looks like a page! There are plenty of
+interesting access patterns that can also be viewed as paging, when picking the
+right ordering predicate. Assume for a moment we have a service holding records
+of some sort, each with a unique Id as well as a last-modified timestamp. This
+data is required in other places and joined with other data, transformed or
+indexed there (event sourcing, materialized views\ldots). When a new system
+requiring the data starts up, it needs to fetch all data. This may be a lot, so
+some sort of paging is required. Subsequently, it needs to refresh the local
+cache, a delta update based on the last-modified timestamp. The amount of data
+changed since the last interaction is also pretty much unbound and therefore
+requires pagination. Paging through the data changed since some point of time
+in an offset-based approach can lead to missed updates if the data changes again
+however (see above), and generally requires extra state to be able to keep the
+resultset currently being traversed stable while paging through it. 
 
-% XXX summary
+Locators allow all of these access patterns to be implemented in the same way:
+The data source would simply expose a locator-based retrieval mechanism with an
+ordering predicate that sorts by last-modifed first and ID second. The locator 
+would therefore be a tuble of both values. In some case of more complicated
+timestamps, like thos used in distributed systems, the timestamp is unique and
+the secondary ID ordering is nort required. 
+
+With this setup, the initial fetch is the same as subsequent updates: simply
+keep paging until the end of the resultset from your current locator, which may
+be a conceptual zero locator on startup. Note that once you have reached the end
+of the result set, you may still discover more data there later. In a way it is
+an infinite, lazy result set that the client is paging over.
+
+\section*{Summary}
+% XXX 
 
 \end{multicols}
 \end{document}
