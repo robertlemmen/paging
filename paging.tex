@@ -237,17 +237,106 @@ as that would turn $>$ into $<=$, which is no longer a strict ordering. In many
 cases the reverse ordering predicate can however be constructed from the forward
 ordering predicate by inversion of the paramters (of course).
 
-In many cases it makes sense to reverse the
-order of the items returned again before returning them to the client, but that
-can also be done on the client before presenting them. 
+In most cases it makes sense to reverse the
+order of the items returned again before returning them to the client. That
+can also be done on the client before presenting them of course, but it would
+mean the client needs extra logic and also needs to keep track of whether it has
+retrieved the page in forward or backwards mode, which may require extra state.
+If the server always presents the page in the natural or requested order, then
+the client can be stateless and can derive the requests for the previous or next
+page from the current result page including the locators provided.
 
 \includegraphics{locate-back.pdf}
 
-% XXX direct page access
+\section*{Transformations and Filtering}
 
-% XXX more stuff...
+An interesting property of locator-based paging is that functionality can be
+built that builds on top of a paging access, provides a paging access, yet adds
+extra value.
 
+One simple example is an enrichment of the data provided. It is relatively
+straight-forward to, when asked for a page of results, go to some other system
+and request a page of raw data, and then apply a function to each element. This
+could be a transformation, mapping, or requesting extra data per item and
+enriching the page. This is already possible of course with offset-based
+paging.
 
+Very often however the transformations required are more structural in nature
+and will either filter out some items, collapse adjacent items together or even
+split an item into multiple ones. This is not possible with offset-based paging
+as changing the number of items of course affects the offset of all subsequent
+items, and therefore means breaking the relationship between the incoming page
+request being handled, and the request or requests that need to be done to the
+upstream backend.
+
+% XXX filtering example with image
+
+What is not possible of course is changing the order of items in the virtual
+total result set, or operations that collapse two non-adjacent items. That
+however is the same for offset-base paging.
+
+\section*{Composing Locators}
+
+A slightly more advanced method of building pages based on other pages is to
+create a singler page from multiple pages from different sources. This is
+possible because our locator is an opaque piece of data and might well contain a
+structure of multiple data points. This is not possible with offset-based
+locators, and is highly interesting because it allows locating data in different
+places that otherwise would have to be colocated just for the technicality of
+the access patterns. In other words it enables federated or distributed systems.
+
+As an example, we could decide to shard our extremely large collection of 16
+numbers over two systems for scalability reasons. One of our systems would
+contain even numbers, the other odd ones. The composability described
+below does not depend on the criteria used to distribute the data, so in reality
+a little bit more useful criteria could be used.
+
+The aggregation service would receive a request like in the example above, with
+a page size of 5 and a locator value of 8. Since the two sources have the same
+structure, it can simply pass on the request to both of them. It would then have
+to combine the two results, sort them, and discard the unnecessary items. 
+
+\includegraphics{composing.pdf}
+
+In this case the locator used in all three cases is exactly the same. This is
+possible in many cases, especially when the structure of the data from all
+upstream sources is the same. It is not required however: the aggregating
+service could simply use a tuple of all upstream locators to the client. In the
+example above the locator for the next page could e.g. be expressed as
+``16;11''. Structured or multi-value locators do require a little bit more
+serialization effort for them to be safe to transport over the wire.
+
+The example also shows that this composition of pages has to discard some
+fetched items, which is a bit wasteful. An alternative would be to request
+pages from the upstream sources that are smaller than the requested page, and
+make subsequent calls if this turns out to not provide enought data. This is a
+tradeoff informed by the number of upstream sources, page sizes, uniformity of
+data distribution and relative cost of larger pages versus extra calls. In most
+cases the simple approach of simply requesting a full-szied page from each
+upstream source is the best.
+
+Combining multiple source pages requires the aggregating service to order them
+again, which in turn means it needs to fully understand the ordering predicate
+used by the sources. This needs to be taken into account as it presents an
+element of coupling. On the other hand the ordering predicate is typically a
+high-level requirement of the total system behavior, rather than some
+technicality so this coupling may not be so tragic.
+
+Up to this point it would have been tempting to represent a page of results as
+an array of items together with a forward and a backwards locator. Note however
+that due to the discarded elements, this is not enough to build composable
+pages. A better and simpler, albeit slighly more wasteful, approach is to
+provide a locator for each item in the result page, and to ensure that a locator
+can be used as both a forward and a backwards locator (as in all examples
+here).
+
+% XXX direct page access and page count
+
+% XXX building offset-based paging on top of locators
+
+% XXX time as a locator
+
+% XXX summary
 
 \end{multicols}
 \end{document}
