@@ -51,7 +51,7 @@ even more interesting problems.
 \end{abstract}
 \vspace{40pt}
 
-\begin{multicols}{2}
+\begin{multicols*}{2}
 \section*{A Paging Example}
 In order to illustrate the next sections, it is useful to have a common and
 simple example case. Suppose we have a computer system containing a set of
@@ -62,7 +62,7 @@ common setup that we are all familiar with.
 
 In our example the records will initially only be simple numbers. Not a very
 useful system, but sufficient for this discussion. Our system will contain only
-the numbers 2, 4, 5, 6, 8, 10, 11, 12, 14, 16, 17, 18, 19, 21, 24, 26. We will
+the numbers 2, 4, 5, 6, 8, 10, 11, 12, 14, 16, 17, 18, 19, 21, 24. We will
 also fix the size of a result set page to 5. We will allow a set of retrieval
 options like filtering, search and ordering as we expand the example, but
 initially the number are always presented in their natural numerical order, and
@@ -70,10 +70,10 @@ all numbers are returned.
 
 So the if the user submits a query, the first page presented should contain the
 numbers 2, 4, 5, 6, and 8, and the next page 10, 11, 12, 14, 16. Overall there
-will be four pages, with the last on consisting of only one element, 26. 
+will be three pages, the last page is even fully populated.
 
 \section*{Using Offsets}
-The most common approach to implementing this is using an offset into the full
+The most common approach to implementing paging is using an offset into the full
 result set. So for example a function would be invoked with query parameters
 like ordering and filtering predicates, and an initial offset = 5 and a
 pagesize of 5. The implementation of this function would somehow apply the
@@ -269,7 +269,13 @@ items, and therefore means breaking the relationship between the incoming page
 request being handled, and the request or requests that need to be done to the
 upstream backend.
 
-% XXX filtering example with image
+The following example uses filtering to only return even numbers.
+
+\includegraphics{filtering.pdf}
+
+Filtering of course means that the resulting data set could be smaller than the
+page size required, so the request to the underlying data source needs to use
+larger page sizes, on demand fetching of more data, most possibly both.
 
 What is not possible of course is changing the order of items in the virtual
 total result set, or operations that collapse two non-adjacent items. That
@@ -285,7 +291,7 @@ locators, and is highly interesting because it allows locating data in different
 places that otherwise would have to be colocated just for the technicality of
 the access patterns. In other words it enables federated or distributed systems.
 
-As an example, we could decide to shard our extremely large collection of 16
+As an example, we could decide to shard our extremely large collection of 15
 numbers over two systems for scalability reasons. One of our systems would
 contain even numbers, the other odd ones. The composability described
 below does not depend on the criteria used to distribute the data, so in reality
@@ -330,41 +336,95 @@ provide a locator for each item in the result page, and to ensure that a locator
 can be used as both a forward and a backwards locator (as in all examples
 here).
 
-% XXX direct page access and page count
+\section*{Offsets as Locators}
 
-% XXX building offset-based paging on top of locators
+While the way a locator is used within the backend differs from an offset, the
+way it is transported to the client is not that different. So an offset-based
+backend can be used with a locator-based API by simply using the offset to an
+item within the locator field for it. This does of course not solve any of the
+problems associated with offset-based locations, but may be useful during
+transitions and when trying to compose over both types of access patterns.
+
+\section*{Direct Page Access and Page Count}
+
+Two features of offset-based paging are not feasible with locators: directly
+navigating to the $n^\textrm{th}$ page and, in the generic case, providing an indicator for how many
+pages do exist in total. 
+
+The fact that navigating to the $n^\textrm{th}$ page is hard is explained above:
+it is also computationally difficult for the offset case. Fortunately this is not a hard requirement
+in most cases, just a leftover from the days of offset-based paging. What it
+simple is providing quick access to the first and last page, and of course the
+previous and the next, which is typically enough. Also note that ``infinite
+scrolling'' access patterns are used a lot nowadays. These cleverly hide the
+page boundaries from the user, and fit the locator access pattern perfectly.
+
+Providing an indicator of how many items or pages exist in total can be hard
+depending on the filtering used by the system. If there is no filtering, then we
+only need to know the number of items to compute the number of pages, and most
+index structures keep track of entry count in a separate field that can be
+accessed efficiently. If any filtering or collapsing is required however, then
+this is no longer sufficient. Your only hope in these cases is to explore
+whether the user really needs to know the number of pages, or only if there are
+many or only a few, e.g. in order to decide whether to refine the search
+parameters or whether to start scanning the pages for what is being looked for.
+If a fuzzy indicator is enough, then heuristics can be employed to determine
+this, e.g. the total number of items modified by a average filter hit rate.
 
 \section*{Timestamps as Locators}
 If you have locators, everything looks like a page! There are plenty of
 interesting access patterns that can also be viewed as paging, when picking the
 right ordering predicate. Assume for a moment we have a service holding records
 of some sort, each with a unique Id as well as a last-modified timestamp. This
-data is required in other places and joined with other data, transformed or
-indexed there (event sourcing, materialized views\ldots). When a new system
+data is required in other places and joined with further data, transformed or
+indexed there (event sourcing, materialized views, all the hot stuff\ldots). 
+
+When a new system
 requiring the data starts up, it needs to fetch all data. This may be a lot, so
 some sort of paging is required. Subsequently, it needs to refresh the local
 cache, a delta update based on the last-modified timestamp. The amount of data
 changed since the last interaction is also pretty much unbound and therefore
-requires pagination. Paging through the data changed since some point of time
+requires pagination to/. Paging through the data changed since some point of time
 in an offset-based approach can lead to missed updates if the data changes again
 however (see above), and generally requires extra state to be able to keep the
 resultset currently being traversed stable while paging through it. 
 
-Locators allow all of these access patterns to be implemented in the same way:
+Locators allow all of these access patterns to be implemented in one common way:
 The data source would simply expose a locator-based retrieval mechanism with an
 ordering predicate that sorts by last-modifed first and ID second. The locator 
-would therefore be a tuble of both values. In some case of more complicated
-timestamps, like thos used in distributed systems, the timestamp is unique and
-the secondary ID ordering is nort required. 
+would therefore be a tuple of both values. In some case of more complicated
+timestamps, like those used in distributed systems, the timestamp is unique and
+the secondary ID ordering is not required. 
 
 With this setup, the initial fetch is the same as subsequent updates: simply
 keep paging until the end of the resultset from your current locator, which may
 be a conceptual zero locator on startup. Note that once you have reached the end
-of the result set, you may still discover more data there later. In a way it is
-an infinite, lazy result set that the client is paging over.
+of the result set you may still discover more data there later. In a way it is
+an infinite, lazy result set that the client is paging over. A resumable stream
+of changes to the data.
 
 \section*{Summary}
-% XXX 
 
-\end{multicols}
+Using locators instead of offsets has significant architectural and performance
+benefits with relatively minor drawbacks. When moving towards locator-based
+pagination, a few simple guidelines can be helpful:
+
+\begin{itemize}
+\item Do not expose a total page count
+\item Do not allow navigating to a specific page, only forwards, backwards as
+well as to the first and perhaps the last page
+\item Use locators within the result page representation, even if they are
+initially just offsets
+\item Treat locators as opaque data, never interpret or manipulate them in the
+client
+\item Provide a locator for each item in the page, not just the first and last
+\item Use a strict ordering predicate
+\item As a consequence the predicate must
+look at enough fields to uniquely distinguish between items
+\item As a further consequence, the locator must contain all these fields and is
+typically a tuple that requires serialization
+\item Construct the reverse ordering predicate from the forward one by parameter
+swapping, not by providing a separate one or negating it
+\end{itemize}
+\end{multicols*}
 \end{document}
